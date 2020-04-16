@@ -17,10 +17,9 @@
 #include <netinet/ip.h>
 
 
-void print_data(const u_char *data, int data_size){
-    int offset = 0;
-
+void print_data(const u_char *data, int data_size, int *offset){
     for(int i=0; i<data_size;i++){
+        //print 16 char represented data
         if(i!= 0 && i%16==0){
             for(int j=i-16; j<i;j++){
                 if(j%8 == 0) printf(" ");
@@ -31,12 +30,15 @@ void print_data(const u_char *data, int data_size){
             }
             printf("\n");
         }
+        //printing hex line head
         if(i==0 || i%16 == 0){
-            printf("%04X: ", offset);
-            offset += 16;
+            printf("%04X: ", *offset);
+            *offset += 16;
         }
+        //printing hex data
         printf("%02X ",(unsigned int)data[i]);
 
+        //print non full line of char represented data
         if(i == data_size-1){
             for(int j=0; j<(15-i%16); j++){
                 //ws padding between hex and data
@@ -76,10 +78,11 @@ void print_tcp(const u_char *buffer, int size){
     int data_size = size - tcpheadlen;
 
     //printing header
-    print_data((const u_char *)tcphead, tcpheadlen);
+    int offset = 0;
+    print_data((const u_char *)tcphead, tcpheadlen, &offset);
     printf("\n");
     //printing packet data
-    print_data(data, data_size);
+    print_data(data, data_size, &offset);
 }
 
 void print_udp(const u_char *buffer, int size){
@@ -103,8 +106,12 @@ void print_udp(const u_char *buffer, int size){
     const u_char *data = buffer + udpheadlen;
     int data_size = size - udpheadlen;
 
+    //printing header
+    int offset = 0;
+    print_data((const u_char *)udphead, udpheadlen, &offset);
+    printf("\n");
     //printing packet data
-    print_data(data, data_size);
+    print_data(data, data_size, &offset);
 }
 
 void read_packet(u_char *user, const struct pcap_pkthdr *h, const u_char *bytes){
