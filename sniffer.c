@@ -16,6 +16,10 @@
 #include <netinet/udp.h>
 #include <netinet/ip.h>
 
+//global variables :peepocry
+static int tcp_flag = 0;
+static int udp_flag = 0;
+int port = -1;
 
 void print_data(const u_char *data, int data_size, int *offset){
     for(int i=0; i<data_size;i++){
@@ -56,7 +60,7 @@ void print_data(const u_char *data, int data_size, int *offset){
     }
 }
 
-void print_tcp(const u_char *buffer, int size){
+void print_tcp(const u_char *buffer, int size, struct tm *time, suseconds_t usec){
     char srcIP[INET_ADDRSTRLEN];
     char destIP[INET_ADDRSTRLEN];
     u_int srcPort, destPort;
@@ -73,6 +77,7 @@ void print_tcp(const u_char *buffer, int size){
     srcPort = ntohs(tcphead->source);
     destPort = ntohs(tcphead->dest);
 
+    printf("%02d:%02d:%02d.%ld ",time->tm_hour, time->tm_min, time->tm_sec, usec);
     printf("%s : %d > %s : %d\n\n",srcIP, srcPort, destIP, destPort);
     const u_char *data = buffer + tcpheadlen;
     int data_size = size - tcpheadlen;
@@ -85,7 +90,7 @@ void print_tcp(const u_char *buffer, int size){
     print_data(data, data_size, &offset);
 }
 
-void print_udp(const u_char *buffer, int size){
+void print_udp(const u_char *buffer, int size, struct tm *time, suseconds_t usec){
     char srcIP[INET_ADDRSTRLEN];
     char destIP[INET_ADDRSTRLEN];
     u_int srcPort, destPort;
@@ -102,6 +107,7 @@ void print_udp(const u_char *buffer, int size){
     srcPort = ntohs(udphead->source);
     destPort = ntohs(udphead->dest);
 
+    printf("%02d:%02d:%02d.%ld ",time->tm_hour, time->tm_min, time->tm_sec, usec);
     printf("%s : %d > %s : %d\n\n",srcIP, srcPort, destIP, destPort);
     const u_char *data = buffer + udpheadlen;
     int data_size = size - udpheadlen;
@@ -121,22 +127,18 @@ void read_packet(u_char *user, const struct pcap_pkthdr *h, const u_char *bytes)
     struct tm *time;
 
     struct iphdr *iphead = (struct iphdr*)(bytes + sizeof(struct ethhdr));
-    switch(iphead->protocol){
-        case 6: //TCP
-            time = localtime(&(h->ts.tv_sec));
-            printf("%02d:%02d:%02d.%ld ",time->tm_hour, time->tm_min, time->tm_sec, h->ts.tv_usec);
-            print_tcp(bytes, size);
-            ++pkg_counter;
-            break;
-        case 17: //UDP
-            time = localtime(&(h->ts.tv_sec));
-            printf("%02d:%02d:%02d.%ld ",time->tm_hour, time->tm_min, time->tm_sec, h->ts.tv_usec);
-            print_udp(bytes, size);
-            ++pkg_counter;
-            break;
+    if(iphead->protocol == 6 && tcp_flag){ //TCP
+        time = localtime(&(h->ts.tv_sec));
+        print_tcp(bytes, size, time, h->ts.tv_usec);
+        ++pkg_counter;
+    }else if(iphead->protocol == 17 && udp_flag){ //UDP
+        time = localtime(&(h->ts.tv_sec));
+        print_udp(bytes, size, time, h->ts.tv_usec);
+        ++pkg_counter;
     }
 
     if(pkg_counter) printf("\n");
+    else pkg_counter++;
 }
 
 void print_available_devices(void){
@@ -165,10 +167,7 @@ int main(int argc, char **argv){
     //variables
     int c;
     //program flags
-    static int tcp_flag = 0;
-    static int udp_flag = 0;
     const char *interface = NULL;
-    int port = -1;
     int num = 1;
     //long options
     static struct option long_opts[] = {
@@ -216,7 +215,11 @@ int main(int argc, char **argv){
         print_available_devices();
         exit(0);
     }
-
+    //both unset, printing both
+    if(!tcp_flag && !udp_flag){
+        tcp_flag = 1;
+        udp_flag = 1;
+    }
 
     //variables for sniffing
     char errbuf[PCAP_ERRBUF_SIZE];
