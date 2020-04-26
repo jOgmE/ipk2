@@ -22,7 +22,8 @@
 //global variables :peepocry
 static int tcp_flag = 0;
 static int udp_flag = 0;
-int port = -1;
+int num = 1;
+pcap_t *handler;
 
 void print_data(const u_char *data, int data_size, int *offset){
     for(int i=0; i<data_size;i++){
@@ -184,18 +185,17 @@ void read_packet(u_char *user, const struct pcap_pkthdr *h, const u_char *bytes)
     struct tm *time;
 
     struct iphdr *iphead = (struct iphdr*)(bytes + sizeof(struct ethhdr));
-    if(iphead->protocol == 6 && tcp_flag){ //TCP
+    if(iphead->protocol == 6){ //TCP
         time = localtime(&(h->ts.tv_sec));
         print_tcp(bytes, size, time, h->ts.tv_usec);
         ++pkg_counter;
-    }else if(iphead->protocol == 17 && udp_flag){ //UDP
+    }else if(iphead->protocol == 17){ //UDP
         time = localtime(&(h->ts.tv_sec));
         print_udp(bytes, size, time, h->ts.tv_usec);
         ++pkg_counter;
     }
 
     if(pkg_counter) printf("\n");
-    else pkg_counter++;
 }
 
 void print_available_devices(void){
@@ -225,7 +225,9 @@ int main(int argc, char **argv){
     int c;
     //program flags
     const char *interface = NULL;
-    int num = 1;
+    char filter_str[256] = {0};
+    const char *port = NULL;
+    struct bpf_program bp; //filter program
     //long options
     static struct option long_opts[] = {
         {"tcp", no_argument, &tcp_flag, 1},
@@ -244,10 +246,7 @@ int main(int argc, char **argv){
                 interface = optarg;
                 break;
             case 'p':
-                if(sscanf(optarg, "%d", &port) == EOF){
-                    fprintf(stderr, "error matching argument port\n");
-                    exit(-1);
-                }
+                port = optarg;
                 break;
             case 't':
                 tcp_flag = 1;
@@ -272,22 +271,45 @@ int main(int argc, char **argv){
         print_available_devices();
         exit(0);
     }
-    //both unset, printing both
-    if(!tcp_flag && !udp_flag){
-        tcp_flag = 1;
-        udp_flag = 1;
-    }
 
     //variables for sniffing
     char errbuf[PCAP_ERRBUF_SIZE];
-    pcap_t *handler;
 
-    //doing sniff
+    //setting filter string
+    if(port){
+        if(udp_flag){
+            sprintf(filter_str, "port %s && udp", port);
+        }else if(tcp_flag){
+            sprintf(filter_str, "port %s && tcp", port);
+        }else{
+            sprintf(filter_str, "port %s && tcp || udp", port);
+        }
+    }else{
+        if(udp_flag){
+            sprintf(filter_str, "udp");
+        }else if(tcp_flag){
+            sprintf(filter_str, "tcp");
+        }else{
+            sprintf(filter_str, "tcp || udp");
+        }
+    }
+
+    //opening sniffer
     handler = pcap_open_live(interface, 65536, 1, 0, errbuf);
     if(handler == NULL){
         fprintf(stderr, "%s\n", errbuf);
         exit(-1);
     }
+    //setting filter
+    if(pcap_compile(handler, &bp, filter_str, 0, 0) == -1){
+        fprintf(stderr, "Couldn't compile the filter\n");
+        exit(-1);
+    }
+    if(pcap_setfilter(handler, &bp) == -1){
+        fprintf(stderr, "Couldn't set the filter\n");
+        exit(-1);
+    }
+    //infinite loop
     pcap_loop(handler, num, read_packet, NULL);
 
     return 0;
