@@ -73,7 +73,7 @@ void print_tcp(const u_char *buffer, int size, struct tm *time, suseconds_t usec
     char srcPortChar[6];
     char destPortChar[6];
     u_int srcPort, destPort;
-    struct addrinfo *sinfo;//, *dinfo;
+    struct addrinfo *sinfo, *dinfo;
 
     //      --IP_HEADER--
     struct iphdr *iphead = (struct iphdr *)(buffer + sizeof(struct ethhdr));
@@ -84,7 +84,7 @@ void print_tcp(const u_char *buffer, int size, struct tm *time, suseconds_t usec
 
     //      --TCP_HEADER--
     struct tcphdr *tcphead = (struct tcphdr*)(buffer + ipheadlen + sizeof(struct ethhdr));
-    int tcpheadlen = sizeof(struct ethhdr) + ipheadlen + tcphead->doff*4;
+    int tcpheadlen = sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct tcphdr);
     //src dest PORT
     srcPort = ntohs(tcphead->source);
     destPort = ntohs(tcphead->dest);
@@ -95,11 +95,12 @@ void print_tcp(const u_char *buffer, int size, struct tm *time, suseconds_t usec
     getaddrinfo(srcIP, srcPortChar, NULL, &sinfo);
     getnameinfo(sinfo->ai_addr, sinfo->ai_addrlen, srcHost, NI_MAXHOST, NULL, 0, 0);
 
-    getaddrinfo(destIP, destPortChar, NULL, &sinfo);
-    getnameinfo(sinfo->ai_addr, sinfo->ai_addrlen, destHost, NI_MAXHOST, NULL, 0, 0);
+    getaddrinfo(destIP, destPortChar, NULL, &dinfo);
+    getnameinfo(dinfo->ai_addr, dinfo->ai_addrlen, destHost, NI_MAXHOST, NULL, 0, 0);
 
     //cleaning
     freeaddrinfo(sinfo);
+    freeaddrinfo(dinfo);
 
     //      --PRINTING--
     printf("%02d:%02d:%02d.%ld ",time->tm_hour, time->tm_min, time->tm_sec, usec);
@@ -119,10 +120,12 @@ void print_tcp(const u_char *buffer, int size, struct tm *time, suseconds_t usec
 
     //printing header
     int offset = 0;
-    print_data((const u_char *)tcphead, tcpheadlen, &offset);
+    print_data((const u_char *)tcphead, sizeof(struct tcphdr), &offset);
     printf("\n");
     //printing packet data
-    print_data(data, data_size, &offset);
+    if(data_size > 0){
+        print_data(data, data_size, &offset);
+    }
 }
 
 void print_udp(const u_char *buffer, int size, struct tm *time, suseconds_t usec){
@@ -133,13 +136,17 @@ void print_udp(const u_char *buffer, int size, struct tm *time, suseconds_t usec
     char srcPortChar[6];
     char destPortChar[6];
     u_int srcPort, destPort;
-    struct addrinfo *sinfo;//, *dinfo;
+    struct addrinfo *sinfo, *dinfo;
 
     struct iphdr *iphead = (struct iphdr *)(buffer + sizeof(struct ethhdr));
     unsigned short ipheadlen = iphead->ihl*4;
+    //src dest IP
+    inet_ntop(AF_INET, &(iphead->saddr), srcIP, INET_ADDRSTRLEN);
+    inet_ntop(AF_INET, &(iphead->daddr), destIP, INET_ADDRSTRLEN);
 
     struct udphdr *udphead = (struct udphdr*)(buffer + ipheadlen + sizeof(struct ethhdr));
-    int udpheadlen = sizeof(struct ethhdr) + ipheadlen + udphead->len;
+    int udpheadlen = sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct udphdr);
+
 
     srcPort = ntohs(udphead->source);
     destPort = ntohs(udphead->dest);
@@ -150,11 +157,12 @@ void print_udp(const u_char *buffer, int size, struct tm *time, suseconds_t usec
     getaddrinfo(srcIP, srcPortChar, NULL, &sinfo);
     getnameinfo(sinfo->ai_addr, sinfo->ai_addrlen, srcHost, NI_MAXHOST, NULL, 0, 0);
 
-    getaddrinfo(destIP, destPortChar, NULL, &sinfo);
-    getnameinfo(sinfo->ai_addr, sinfo->ai_addrlen, destHost, NI_MAXHOST, NULL, 0, 0);
+    getaddrinfo(destIP, destPortChar, NULL, &dinfo);
+    getnameinfo(dinfo->ai_addr, dinfo->ai_addrlen, destHost, NI_MAXHOST, NULL, 0, 0);
 
     //cleaning
     freeaddrinfo(sinfo);
+    freeaddrinfo(dinfo);
 
     printf("%02d:%02d:%02d.%ld ",time->tm_hour, time->tm_min, time->tm_sec, usec);
     if(srcHost[0] == 0){
@@ -172,28 +180,27 @@ void print_udp(const u_char *buffer, int size, struct tm *time, suseconds_t usec
 
     //printing header
     int offset = 0;
-    print_data((const u_char *)udphead, udpheadlen, &offset);
+    print_data((const u_char *)udphead, sizeof(struct udphdr), &offset);
     printf("\n");
     //printing packet data
-    print_data(data, data_size, &offset);
+    if(data_size > 0){
+        print_data(data, data_size, &offset);
+    }
 }
 
 void read_packet(u_char *user, const struct pcap_pkthdr *h, const u_char *bytes){
     //counter for packages
     int pkg_counter = 0;
     int size = h->len;
-    struct tm *time;
+    struct tm *time = localtime(&(h->ts.tv_sec));
 
     struct iphdr *iphead = (struct iphdr*)(bytes + sizeof(struct ethhdr));
     if(iphead->protocol == 6){ //TCP
-        time = localtime(&(h->ts.tv_sec));
         print_tcp(bytes, size, time, h->ts.tv_usec);
-        ++pkg_counter;
     }else if(iphead->protocol == 17){ //UDP
-        time = localtime(&(h->ts.tv_sec));
         print_udp(bytes, size, time, h->ts.tv_usec);
-        ++pkg_counter;
     }
+    ++pkg_counter;
 
     if(pkg_counter) printf("\n");
 }
@@ -295,7 +302,7 @@ int main(int argc, char **argv){
     }
 
     //opening sniffer
-    handler = pcap_open_live(interface, 65536, 1, 0, errbuf);
+    handler = pcap_open_live(interface, 65536, 0, 0, errbuf);
     if(handler == NULL){
         fprintf(stderr, "%s\n", errbuf);
         exit(-1);
@@ -310,7 +317,7 @@ int main(int argc, char **argv){
         exit(-1);
     }
     //infinite loop
-    pcap_loop(handler, num, read_packet, NULL);
+    pcap_dispatch(handler, num, read_packet, NULL);
 
     return 0;
 }
