@@ -31,7 +31,7 @@ void print_data(const u_char *data, int data_size, int *offset){
         if(i!= 0 && i%16==0){
             for(int j=i-16; j<i;j++){
                 if(j%8 == 0) printf(" ");
-                if(data[j] >= 32 && data[j] <= 128){ //printable char
+                if(data[j] >= 32 && data[j] <= 126){ //printable char
                     printf("%c", (unsigned char)data[j]);
                 }
                 else printf("."); //non printable char
@@ -121,9 +121,9 @@ void print_tcp(const u_char *buffer, int size, struct tm *time, suseconds_t usec
     //printing header
     int offset = 0;
     print_data((const u_char *)tcphead, sizeof(struct tcphdr), &offset);
-    printf("\n");
     //printing packet data
     if(data_size > 0){
+        printf("\n");
         print_data(data, data_size, &offset);
     }
 }
@@ -181,9 +181,9 @@ void print_udp(const u_char *buffer, int size, struct tm *time, suseconds_t usec
     //printing header
     int offset = 0;
     print_data((const u_char *)udphead, sizeof(struct udphdr), &offset);
-    printf("\n");
     //printing packet data
     if(data_size > 0){
+        printf("\n");
         print_data(data, data_size, &offset);
     }
 }
@@ -302,7 +302,7 @@ int main(int argc, char **argv){
     }
 
     //opening sniffer
-    handler = pcap_open_live(interface, 65536, 0, 0, errbuf);
+    handler = pcap_open_live(interface, 65536, 0, 5000, errbuf);
     if(handler == NULL){
         fprintf(stderr, "%s\n", errbuf);
         exit(-1);
