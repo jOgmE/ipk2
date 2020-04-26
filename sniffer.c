@@ -15,6 +15,9 @@
 #include <netinet/tcp.h>
 #include <netinet/udp.h>
 #include <netinet/ip.h>
+#include <sys/socket.h>
+#include <netdb.h>
+#include <string.h>
 
 //global variables :peepocry
 static int tcp_flag = 0;
@@ -61,24 +64,55 @@ void print_data(const u_char *data, int data_size, int *offset){
 }
 
 void print_tcp(const u_char *buffer, int size, struct tm *time, suseconds_t usec){
+    //      --VARIABLES--
     char srcIP[INET_ADDRSTRLEN];
     char destIP[INET_ADDRSTRLEN];
+    char srcHost[NI_MAXHOST] = {0};
+    char destHost[NI_MAXHOST] = {0};
+    char srcPortChar[6];
+    char destPortChar[6];
     u_int srcPort, destPort;
+    struct addrinfo *sinfo;//, *dinfo;
 
+    //      --IP_HEADER--
     struct iphdr *iphead = (struct iphdr *)(buffer + sizeof(struct ethhdr));
     unsigned short ipheadlen = iphead->ihl*4;
-    //src, dest ip
+    //src dest IP
     inet_ntop(AF_INET, &(iphead->saddr), srcIP, INET_ADDRSTRLEN);
     inet_ntop(AF_INET, &(iphead->daddr), destIP, INET_ADDRSTRLEN);
 
+    //      --TCP_HEADER--
     struct tcphdr *tcphead = (struct tcphdr*)(buffer + ipheadlen + sizeof(struct ethhdr));
     int tcpheadlen = sizeof(struct ethhdr) + ipheadlen + tcphead->doff*4;
     //src dest PORT
     srcPort = ntohs(tcphead->source);
     destPort = ntohs(tcphead->dest);
+    sprintf(srcPortChar, "%u", srcPort);
+    sprintf(destPortChar, "%u", destPort);
 
+    //      --GET_HOST_NAME--
+    getaddrinfo(srcIP, srcPortChar, NULL, &sinfo);
+    getnameinfo(sinfo->ai_addr, sinfo->ai_addrlen, srcHost, NI_MAXHOST, NULL, 0, 0);
+
+    getaddrinfo(destIP, destPortChar, NULL, &sinfo);
+    getnameinfo(sinfo->ai_addr, sinfo->ai_addrlen, destHost, NI_MAXHOST, NULL, 0, 0);
+
+    //cleaning
+    freeaddrinfo(sinfo);
+
+    //      --PRINTING--
     printf("%02d:%02d:%02d.%ld ",time->tm_hour, time->tm_min, time->tm_sec, usec);
-    printf("%s : %d > %s : %d\n\n",srcIP, srcPort, destIP, destPort);
+    if(srcHost[0] == 0){
+        printf("%s : %d > ",srcIP, srcPort);
+    }else{
+        printf("%s : %d > ",srcHost, srcPort);
+    }
+    if(destHost[0] == 0){
+        printf("%s : %d\n\n", destIP, destPort);
+    }else{
+        printf("%s : %d\n\n", destHost, destPort);
+    }
+
     const u_char *data = buffer + tcpheadlen;
     int data_size = size - tcpheadlen;
 
@@ -93,22 +127,45 @@ void print_tcp(const u_char *buffer, int size, struct tm *time, suseconds_t usec
 void print_udp(const u_char *buffer, int size, struct tm *time, suseconds_t usec){
     char srcIP[INET_ADDRSTRLEN];
     char destIP[INET_ADDRSTRLEN];
+    char srcHost[NI_MAXHOST] = {0};
+    char destHost[NI_MAXHOST]= {0};
+    char srcPortChar[6];
+    char destPortChar[6];
     u_int srcPort, destPort;
+    struct addrinfo *sinfo;//, *dinfo;
 
     struct iphdr *iphead = (struct iphdr *)(buffer + sizeof(struct ethhdr));
     unsigned short ipheadlen = iphead->ihl*4;
-    //src, dest ip
-    inet_ntop(AF_INET, &(iphead->saddr), srcIP, INET_ADDRSTRLEN);
-    inet_ntop(AF_INET, &(iphead->daddr), destIP, INET_ADDRSTRLEN);
 
     struct udphdr *udphead = (struct udphdr*)(buffer + ipheadlen + sizeof(struct ethhdr));
     int udpheadlen = sizeof(struct ethhdr) + ipheadlen + udphead->len;
 
     srcPort = ntohs(udphead->source);
     destPort = ntohs(udphead->dest);
+    sprintf(srcPortChar, "%u", srcPort);
+    sprintf(destPortChar, "%u", destPort);
+
+    //      --GET_HOST_NAME--
+    getaddrinfo(srcIP, srcPortChar, NULL, &sinfo);
+    getnameinfo(sinfo->ai_addr, sinfo->ai_addrlen, srcHost, NI_MAXHOST, NULL, 0, 0);
+
+    getaddrinfo(destIP, destPortChar, NULL, &sinfo);
+    getnameinfo(sinfo->ai_addr, sinfo->ai_addrlen, destHost, NI_MAXHOST, NULL, 0, 0);
+
+    //cleaning
+    freeaddrinfo(sinfo);
 
     printf("%02d:%02d:%02d.%ld ",time->tm_hour, time->tm_min, time->tm_sec, usec);
-    printf("%s : %d > %s : %d\n\n",srcIP, srcPort, destIP, destPort);
+    if(srcHost[0] == 0){
+        printf("%s : %d > ",srcIP, srcPort);
+    }else{
+        printf("%s : %d > ",srcHost, srcPort);
+    }
+    if(destHost[0] == 0){
+        printf("%s : %d\n\n", destIP, destPort);
+    }else{
+        printf("%s : %d\n\n", destHost, destPort);
+    }
     const u_char *data = buffer + udpheadlen;
     int data_size = size - udpheadlen;
 
