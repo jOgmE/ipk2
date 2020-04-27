@@ -202,7 +202,7 @@ void read_packet(u_char *user, const struct pcap_pkthdr *h, const u_char *bytes)
     }
     ++pkg_counter;
 
-    if(pkg_counter) printf("\n");
+    if(pkg_counter && num != pkg_counter) printf("\n");
 }
 
 void print_available_devices(void){
@@ -318,6 +318,7 @@ int main(int argc, char **argv){
     }
     //infinite loop
     pcap_dispatch(handler, num, read_packet, NULL);
+    //TODO make timeout ^
 
     return 0;
 }
