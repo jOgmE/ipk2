@@ -319,6 +319,9 @@ int main(int argc, char **argv){
     //infinite loop
     pcap_dispatch(handler, num, read_packet, NULL);
     //TODO make timeout ^
+    
+    pcap_close(handler);
+    pcap_freecode(&bp);
 
     return 0;
 }
