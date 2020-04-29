@@ -16,6 +16,7 @@
 #include <netinet/tcp.h>
 #include <netinet/udp.h>
 #include <netinet/ip.h>
+#include <linux/ipv6.h>
 #include <sys/socket.h>
 #include <netdb.h>
 #include <string.h>
@@ -55,7 +56,7 @@ void print_data(const u_char *data, int data_size, int *offset){
             }
             for(int j=i-i%16;j<=i;j++){
                 if(j%8 == 0) printf(" ");
-                if(data[j] >= 32 && data[j] <= 128){ //printable char
+                if(data[j] >= 32 && data[j] <= 126){ //printable char
                     printf("%c", (unsigned char)data[j]);
                 }
                 else printf("."); //non printable char
@@ -65,21 +66,32 @@ void print_data(const u_char *data, int data_size, int *offset){
     }
 }
 
-void print_proto(const u_char *buffer, int size, struct tm *time, suseconds_t usec, int proto){
-    char srcIP[INET_ADDRSTRLEN];
-    char destIP[INET_ADDRSTRLEN];
+void print_proto(const u_char *buffer, int size, struct tm *time, suseconds_t usec, int proto, \
+        uint16_t ipv){
+    char srcIP[INET6_ADDRSTRLEN];
+    char destIP[INET6_ADDRSTRLEN];
     char srcHost[NI_MAXHOST] = {0};
     char destHost[NI_MAXHOST]= {0};
     char srcPortChar[6];
     char destPortChar[6];
     u_int srcPort, destPort;
     struct addrinfo *sinfo, *dinfo;
+    unsigned short ipheadlen;
+    struct iphdr *iphead;
+    struct ipv6hdr *ip6head;
 
-    struct iphdr *iphead = (struct iphdr *)(buffer);
-    unsigned short ipheadlen = iphead->ihl*4;
-    //src dest IP
-    inet_ntop(AF_INET, &(iphead->saddr), srcIP, INET_ADDRSTRLEN);
-    inet_ntop(AF_INET, &(iphead->daddr), destIP, INET_ADDRSTRLEN);
+    if(ipv == ETH_P_IP){
+        iphead = (struct iphdr*)buffer;
+        ipheadlen = iphead->ihl*4;
+        //src dest IP
+        inet_ntop(AF_INET, &(iphead->saddr), srcIP, INET6_ADDRSTRLEN);
+        inet_ntop(AF_INET, &(iphead->daddr), destIP, INET6_ADDRSTRLEN);
+    }else if(ipv == ETH_P_IPV6){
+        ip6head = (struct ipv6hdr*)buffer;
+        ipheadlen = sizeof(struct ipv6hdr);
+        inet_ntop(AF_INET6, &(ip6head->saddr), srcIP, INET6_ADDRSTRLEN);
+        inet_ntop(AF_INET6, &(ip6head->daddr), destIP, INET6_ADDRSTRLEN);
+    }
 
     const u_char *protohead = buffer + ipheadlen;
 
@@ -120,20 +132,38 @@ void print_proto(const u_char *buffer, int size, struct tm *time, suseconds_t us
     const u_char *data;
     int data_size;
 
-    if(proto == 6){
-        data = buffer + sizeof(struct iphdr) + sizeof(struct udphdr);
-        data_size = size - sizeof(struct iphdr) + sizeof(struct udphdr);
-    }else{
-        data = buffer + sizeof(struct iphdr) + sizeof(struct tcphdr);
-        data_size = size - sizeof(struct iphdr) + sizeof(struct tcphdr);
+    if(ipv == ETH_P_IP){
+        if(proto == 6){
+            data = buffer + sizeof(struct iphdr) + sizeof(struct udphdr);
+            data_size = size - sizeof(struct iphdr) - sizeof(struct udphdr);
+        }else if(proto == 17){
+            data = buffer + sizeof(struct iphdr) + sizeof(struct tcphdr);
+            data_size = size - sizeof(struct iphdr) - sizeof(struct tcphdr);
+        }
+    }else if(ipv == ETH_P_IPV6){
+        if(proto == 6){
+            data = buffer + sizeof(struct ipv6hdr) + sizeof(struct udphdr);
+            data_size = size - sizeof(struct ipv6hdr) - sizeof(struct udphdr);
+        }else if(proto == 17){
+            data = buffer + sizeof(struct ipv6hdr) + sizeof(struct tcphdr);
+            data_size = size - sizeof(struct ipv6hdr) - sizeof(struct tcphdr);
+        }
     }
 
     //printing header
     int offset = 0;
     if(proto == 6){
-        print_data(protohead, sizeof(struct udphdr), &offset);
+        if(ipv == ETH_P_IP){
+            print_data(buffer, sizeof(struct udphdr) + sizeof(struct iphdr), &offset);
+        }else if(ipv == ETH_P_IPV6){
+            print_data(buffer, sizeof(struct udphdr) + sizeof(struct ipv6hdr), &offset);
+        }
     }else{
-        print_data(protohead, sizeof(struct tcphdr), &offset);
+        if(ipv == ETH_P_IP){
+            print_data(buffer, sizeof(struct tcphdr) + sizeof(struct iphdr), &offset);
+        }else if(ipv == ETH_P_IPV6){
+            print_data(buffer, sizeof(struct tcphdr) + sizeof(struct ipv6hdr), &offset);
+        }
     }
     //printing packet data
     if(data_size > 0){
@@ -147,7 +177,9 @@ void read_packet(u_char *user, const struct pcap_pkthdr *h, const u_char *bytes)
     int pkg_counter = 0;
     int size = h->len;
     struct tm *time = localtime(&(h->ts.tv_sec));
-    struct iphdr *iphead;
+    const u_char *iphead;
+    uint16_t ipv;
+    int proto;
 
     //1 for ethhdr
     //113 for linux cooked
@@ -155,13 +187,19 @@ void read_packet(u_char *user, const struct pcap_pkthdr *h, const u_char *bytes)
     
     if(link_frame_type == 113){
         //struct sll_header* cookedhdr = (struct sll_header*) bytes;
-        iphead = (struct iphdr*)(bytes + sizeof(struct sll_header));
+        iphead = bytes + sizeof(struct sll_header);
     }else if(link_frame_type == 1){
-        iphead = (struct iphdr*)(bytes + sizeof(struct ethhdr));
+        iphead = bytes + sizeof(struct ethhdr);
+        ipv = ntohs(((struct ethhdr*)bytes)->h_proto); //ip version 4|6
+        if(ipv == ETH_P_IP){
+            proto = ((struct iphdr*)iphead)->protocol; //protocol TCP|UDP
+        }else if(ipv == ETH_P_IPV6){
+            proto = ((struct ipv6hdr*)iphead)->nexthdr;
+        }
     }
 
-    print_proto((const u_char*)iphead, size - sizeof(struct ethhdr), time, h->ts.tv_usec, \
-            iphead->protocol);
+    print_proto(iphead, size - sizeof(struct ethhdr), time, h->ts.tv_usec, \
+            proto, ipv);
     ++pkg_counter;
 
     if(pkg_counter && num != pkg_counter) printf("\n");
