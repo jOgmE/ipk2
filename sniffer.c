@@ -65,71 +65,7 @@ void print_data(const u_char *data, int data_size, int *offset){
     }
 }
 
-void print_tcp(const u_char *buffer, int size, struct tm *time, suseconds_t usec){
-    //      --VARIABLES--
-    char srcIP[INET_ADDRSTRLEN];
-    char destIP[INET_ADDRSTRLEN];
-    char srcHost[NI_MAXHOST] = {0};
-    char destHost[NI_MAXHOST] = {0};
-    char srcPortChar[6];
-    char destPortChar[6];
-    u_int srcPort, destPort;
-    struct addrinfo *sinfo, *dinfo;
-
-    //      --IP_HEADER--
-    struct iphdr *iphead = (struct iphdr *)(buffer);
-    unsigned short ipheadlen = iphead->ihl*4;
-    //src dest IP
-    inet_ntop(AF_INET, &(iphead->saddr), srcIP, INET_ADDRSTRLEN);
-    inet_ntop(AF_INET, &(iphead->daddr), destIP, INET_ADDRSTRLEN);
-
-    //      --TCP_HEADER--
-    struct tcphdr *tcphead = (struct tcphdr*)(buffer + ipheadlen);
-    int tcpheadlen = sizeof(struct iphdr) + sizeof(struct tcphdr);
-    //src dest PORT
-    srcPort = ntohs(tcphead->source);
-    destPort = ntohs(tcphead->dest);
-    sprintf(srcPortChar, "%u", srcPort);
-    sprintf(destPortChar, "%u", destPort);
-
-    //      --GET_HOST_NAME--
-    getaddrinfo(srcIP, srcPortChar, NULL, &sinfo);
-    getnameinfo(sinfo->ai_addr, sinfo->ai_addrlen, srcHost, NI_MAXHOST, NULL, 0, 0);
-
-    getaddrinfo(destIP, destPortChar, NULL, &dinfo);
-    getnameinfo(dinfo->ai_addr, dinfo->ai_addrlen, destHost, NI_MAXHOST, NULL, 0, 0);
-
-    //cleaning
-    freeaddrinfo(sinfo);
-    freeaddrinfo(dinfo);
-
-    //      --PRINTING--
-    printf("%02d:%02d:%02d.%ld ",time->tm_hour, time->tm_min, time->tm_sec, usec);
-    if(srcHost[0] == 0){
-        printf("%s : %d > ",srcIP, srcPort);
-    }else{
-        printf("%s : %d > ",srcHost, srcPort);
-    }
-    if(destHost[0] == 0){
-        printf("%s : %d\n\n", destIP, destPort);
-    }else{
-        printf("%s : %d\n\n", destHost, destPort);
-    }
-
-    const u_char *data = buffer + tcpheadlen;
-    int data_size = size - tcpheadlen;
-
-    //printing header
-    int offset = 0;
-    print_data((const u_char *)tcphead, sizeof(struct tcphdr), &offset);
-    //printing packet data
-    if(data_size > 0){
-        printf("\n");
-        print_data(data, data_size, &offset);
-    }
-}
-
-void print_udp(const u_char *buffer, int size, struct tm *time, suseconds_t usec){
+void print_proto(const u_char *buffer, int size, struct tm *time, suseconds_t usec, int proto){
     char srcIP[INET_ADDRSTRLEN];
     char destIP[INET_ADDRSTRLEN];
     char srcHost[NI_MAXHOST] = {0};
@@ -145,12 +81,17 @@ void print_udp(const u_char *buffer, int size, struct tm *time, suseconds_t usec
     inet_ntop(AF_INET, &(iphead->saddr), srcIP, INET_ADDRSTRLEN);
     inet_ntop(AF_INET, &(iphead->daddr), destIP, INET_ADDRSTRLEN);
 
-    struct udphdr *udphead = (struct udphdr*)(buffer + ipheadlen);
-    int udpheadlen = sizeof(struct iphdr) + sizeof(struct udphdr);
+    const u_char *protohead = buffer + ipheadlen;
 
-
-    srcPort = ntohs(udphead->source);
-    destPort = ntohs(udphead->dest);
+    if(proto == 17){
+        //src dest PORT
+        srcPort = ntohs(((struct udphdr*)protohead)->source);
+        destPort = ntohs(((struct udphdr*)protohead)->dest);
+    }else{
+        //src dest PORT
+        srcPort = ntohs(((struct tcphdr*)protohead)->source);
+        destPort = ntohs(((struct tcphdr*)protohead)->dest);
+    }
     sprintf(srcPortChar, "%u", srcPort);
     sprintf(destPortChar, "%u", destPort);
 
@@ -176,12 +117,24 @@ void print_udp(const u_char *buffer, int size, struct tm *time, suseconds_t usec
     }else{
         printf("%s : %d\n\n", destHost, destPort);
     }
-    const u_char *data = buffer + udpheadlen;
-    int data_size = size - udpheadlen;
+    const u_char *data;
+    int data_size;
+
+    if(proto == 6){
+        data = buffer + sizeof(struct iphdr) + sizeof(struct udphdr);
+        data_size = size - sizeof(struct iphdr) + sizeof(struct udphdr);
+    }else{
+        data = buffer + sizeof(struct iphdr) + sizeof(struct tcphdr);
+        data_size = size - sizeof(struct iphdr) + sizeof(struct tcphdr);
+    }
 
     //printing header
     int offset = 0;
-    print_data((const u_char *)udphead, sizeof(struct udphdr), &offset);
+    if(proto == 6){
+        print_data(protohead, sizeof(struct udphdr), &offset);
+    }else{
+        print_data(protohead, sizeof(struct tcphdr), &offset);
+    }
     //printing packet data
     if(data_size > 0){
         printf("\n");
@@ -210,11 +163,8 @@ void read_packet(u_char *user, const struct pcap_pkthdr *h, const u_char *bytes)
     //print_data(bytes, size, &i);
 
     struct iphdr *iphead = (struct iphdr*)(bytes + sizeof(struct ethhdr));
-    if(iphead->protocol == 6){ //TCP
-        print_tcp((const u_char*)iphead, size - sizeof(struct ethhdr), time, h->ts.tv_usec);
-    }else if(iphead->protocol == 17){ //UDP
-        print_udp((const u_char*)iphead, size - sizeof(struct ethhdr), time, h->ts.tv_usec);
-    }
+    print_proto((const u_char*)iphead, size - sizeof(struct ethhdr), time, h->ts.tv_usec, \
+            iphead->protocol);
     ++pkg_counter;
 
     if(pkg_counter && num != pkg_counter) printf("\n");
