@@ -147,22 +147,19 @@ void read_packet(u_char *user, const struct pcap_pkthdr *h, const u_char *bytes)
     int pkg_counter = 0;
     int size = h->len;
     struct tm *time = localtime(&(h->ts.tv_sec));
+    struct iphdr *iphead;
 
     //1 for ethhdr
     //113 for linux cooked
-    /*int link_frame_type = pcap_datalink(handler);
+    int link_frame_type = pcap_datalink(handler);
     
     if(link_frame_type == 113){
-        struct sll_header* cookedhdr = (struct sll_header*) bytes;
-        struct ethhdr* ethernet = (struct ethhdr*) bytes;
-        (void)cookedhdr;
-        (void)ethernet;
-    }*/
+        //struct sll_header* cookedhdr = (struct sll_header*) bytes;
+        iphead = (struct iphdr*)(bytes + sizeof(struct sll_header));
+    }else if(link_frame_type == 1){
+        iphead = (struct iphdr*)(bytes + sizeof(struct ethhdr));
+    }
 
-    //int i = 0;
-    //print_data(bytes, size, &i);
-
-    struct iphdr *iphead = (struct iphdr*)(bytes + sizeof(struct ethhdr));
     print_proto((const u_char*)iphead, size - sizeof(struct ethhdr), time, h->ts.tv_usec, \
             iphead->protocol);
     ++pkg_counter;
