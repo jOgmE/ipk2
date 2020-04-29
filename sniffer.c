@@ -10,6 +10,7 @@
 
 #include <pcap.h>
 #include <pcap/pcap.h>
+#include <sll.h> //for cooked header
 #include <errno.h>
 #include <net/ethernet.h>
 #include <netinet/tcp.h>
@@ -76,15 +77,15 @@ void print_tcp(const u_char *buffer, int size, struct tm *time, suseconds_t usec
     struct addrinfo *sinfo, *dinfo;
 
     //      --IP_HEADER--
-    struct iphdr *iphead = (struct iphdr *)(buffer + sizeof(struct ethhdr));
+    struct iphdr *iphead = (struct iphdr *)(buffer);
     unsigned short ipheadlen = iphead->ihl*4;
     //src dest IP
     inet_ntop(AF_INET, &(iphead->saddr), srcIP, INET_ADDRSTRLEN);
     inet_ntop(AF_INET, &(iphead->daddr), destIP, INET_ADDRSTRLEN);
 
     //      --TCP_HEADER--
-    struct tcphdr *tcphead = (struct tcphdr*)(buffer + ipheadlen + sizeof(struct ethhdr));
-    int tcpheadlen = sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct tcphdr);
+    struct tcphdr *tcphead = (struct tcphdr*)(buffer + ipheadlen);
+    int tcpheadlen = sizeof(struct iphdr) + sizeof(struct tcphdr);
     //src dest PORT
     srcPort = ntohs(tcphead->source);
     destPort = ntohs(tcphead->dest);
@@ -138,14 +139,14 @@ void print_udp(const u_char *buffer, int size, struct tm *time, suseconds_t usec
     u_int srcPort, destPort;
     struct addrinfo *sinfo, *dinfo;
 
-    struct iphdr *iphead = (struct iphdr *)(buffer + sizeof(struct ethhdr));
+    struct iphdr *iphead = (struct iphdr *)(buffer);
     unsigned short ipheadlen = iphead->ihl*4;
     //src dest IP
     inet_ntop(AF_INET, &(iphead->saddr), srcIP, INET_ADDRSTRLEN);
     inet_ntop(AF_INET, &(iphead->daddr), destIP, INET_ADDRSTRLEN);
 
-    struct udphdr *udphead = (struct udphdr*)(buffer + ipheadlen + sizeof(struct ethhdr));
-    int udpheadlen = sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct udphdr);
+    struct udphdr *udphead = (struct udphdr*)(buffer + ipheadlen);
+    int udpheadlen = sizeof(struct iphdr) + sizeof(struct udphdr);
 
 
     srcPort = ntohs(udphead->source);
@@ -194,11 +195,25 @@ void read_packet(u_char *user, const struct pcap_pkthdr *h, const u_char *bytes)
     int size = h->len;
     struct tm *time = localtime(&(h->ts.tv_sec));
 
+    //1 for ethhdr
+    //113 for linux cooked
+    /*int link_frame_type = pcap_datalink(handler);
+    
+    if(link_frame_type == 113){
+        struct sll_header* cookedhdr = (struct sll_header*) bytes;
+        struct ethhdr* ethernet = (struct ethhdr*) bytes;
+        (void)cookedhdr;
+        (void)ethernet;
+    }*/
+
+    //int i = 0;
+    //print_data(bytes, size, &i);
+
     struct iphdr *iphead = (struct iphdr*)(bytes + sizeof(struct ethhdr));
     if(iphead->protocol == 6){ //TCP
-        print_tcp(bytes, size, time, h->ts.tv_usec);
+        print_tcp((const u_char*)iphead, size - sizeof(struct ethhdr), time, h->ts.tv_usec);
     }else if(iphead->protocol == 17){ //UDP
-        print_udp(bytes, size, time, h->ts.tv_usec);
+        print_udp((const u_char*)iphead, size - sizeof(struct ethhdr), time, h->ts.tv_usec);
     }
     ++pkg_counter;
 
