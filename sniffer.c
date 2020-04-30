@@ -22,8 +22,6 @@
 #include <string.h>
 
 //global variables :peepocry
-static int tcp_flag = 0;
-static int udp_flag = 0;
 int num = 1;
 pcap_t *handler;
 
@@ -186,16 +184,19 @@ void read_packet(u_char *user, const struct pcap_pkthdr *h, const u_char *bytes)
     int link_frame_type = pcap_datalink(handler);
     
     if(link_frame_type == 113){
-        //struct sll_header* cookedhdr = (struct sll_header*) bytes;
         iphead = bytes + sizeof(struct sll_header);
+        uint16_t tmp;
+        memcpy(&tmp, (((void*)bytes) + 14), 2);
+        ipv = ntohs(tmp);
     }else if(link_frame_type == 1){
         iphead = bytes + sizeof(struct ethhdr);
         ipv = ntohs(((struct ethhdr*)bytes)->h_proto); //ip version 4|6
-        if(ipv == ETH_P_IP){
-            proto = ((struct iphdr*)iphead)->protocol; //protocol TCP|UDP
-        }else if(ipv == ETH_P_IPV6){
-            proto = ((struct ipv6hdr*)iphead)->nexthdr;
-        }
+    }
+
+    if(ipv == ETH_P_IP){
+        proto = ((struct iphdr*)iphead)->protocol; //protocol TCP|UDP
+    }else if(ipv == ETH_P_IPV6){
+        proto = ((struct ipv6hdr*)iphead)->nexthdr;
     }
 
     print_proto(iphead, size - sizeof(struct ethhdr), time, h->ts.tv_usec, \
@@ -232,6 +233,8 @@ int main(int argc, char **argv){
     int c;
     //program flags
     const char *interface = NULL;
+    static int tcp_flag = 0;
+    static int udp_flag = 0;
     char filter_str[256] = {0};
     const char *port = NULL;
     struct bpf_program bp; //filter program
