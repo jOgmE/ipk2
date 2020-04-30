@@ -25,7 +25,7 @@
 int num = 1;
 pcap_t *handler;
 
-void print_data(const u_char *data, int data_size, int *offset){
+void print_data(const u_char *data, size_t data_size, int *offset){
     for(int i=0; i<data_size;i++){
         //print 16 char represented data
         if(i!= 0 && i%16==0){
@@ -41,10 +41,10 @@ void print_data(const u_char *data, int data_size, int *offset){
         //printing hex line head
         if(i==0 || i%16 == 0){
             printf("%04X: ", *offset);
-            *offset += 16;
         }
         //printing hex data
         printf("%02X ",(unsigned int)data[i]);
+        *offset += 1;
 
         //print non full line of char represented data
         if(i == data_size-1){
@@ -65,7 +65,7 @@ void print_data(const u_char *data, int data_size, int *offset){
 }
 
 void print_proto(const u_char *buffer, int size, struct tm *time, suseconds_t usec, int proto, \
-        uint16_t ipv){
+        uint16_t ipv, size_t first_head_len){
     char srcIP[INET6_ADDRSTRLEN];
     char destIP[INET6_ADDRSTRLEN];
     char srcHost[NI_MAXHOST] = {0};
@@ -79,19 +79,19 @@ void print_proto(const u_char *buffer, int size, struct tm *time, suseconds_t us
     struct ipv6hdr *ip6head;
 
     if(ipv == ETH_P_IP){
-        iphead = (struct iphdr*)buffer;
+        iphead = (struct iphdr*)(buffer + first_head_len);
         ipheadlen = iphead->ihl*4;
         //src dest IP
         inet_ntop(AF_INET, &(iphead->saddr), srcIP, INET6_ADDRSTRLEN);
         inet_ntop(AF_INET, &(iphead->daddr), destIP, INET6_ADDRSTRLEN);
     }else if(ipv == ETH_P_IPV6){
-        ip6head = (struct ipv6hdr*)buffer;
+        ip6head = (struct ipv6hdr*)(buffer + first_head_len);
         ipheadlen = sizeof(struct ipv6hdr);
         inet_ntop(AF_INET6, &(ip6head->saddr), srcIP, INET6_ADDRSTRLEN);
         inet_ntop(AF_INET6, &(ip6head->daddr), destIP, INET6_ADDRSTRLEN);
     }
 
-    const u_char *protohead = buffer + ipheadlen;
+    const u_char *protohead = buffer + first_head_len + ipheadlen;
 
     if(proto == 17){
         //src dest PORT
@@ -132,19 +132,19 @@ void print_proto(const u_char *buffer, int size, struct tm *time, suseconds_t us
 
     if(ipv == ETH_P_IP){
         if(proto == 6){
-            data = buffer + sizeof(struct iphdr) + sizeof(struct udphdr);
-            data_size = size - sizeof(struct iphdr) - sizeof(struct udphdr);
+            data = (const u_char*)iphead + sizeof(struct iphdr) + sizeof(struct udphdr);
+            data_size = size - sizeof(struct iphdr) - sizeof(struct udphdr) - first_head_len;
         }else if(proto == 17){
-            data = buffer + sizeof(struct iphdr) + sizeof(struct tcphdr);
-            data_size = size - sizeof(struct iphdr) - sizeof(struct tcphdr);
+            data = (const u_char*)iphead + sizeof(struct iphdr) + sizeof(struct tcphdr);
+            data_size = size - sizeof(struct iphdr) - sizeof(struct tcphdr) - first_head_len;
         }
     }else if(ipv == ETH_P_IPV6){
         if(proto == 6){
-            data = buffer + sizeof(struct ipv6hdr) + sizeof(struct udphdr);
-            data_size = size - sizeof(struct ipv6hdr) - sizeof(struct udphdr);
+            data = (const u_char*)iphead + sizeof(struct ipv6hdr) + sizeof(struct udphdr);
+            data_size = size - sizeof(struct ipv6hdr) - sizeof(struct udphdr) - first_head_len;
         }else if(proto == 17){
-            data = buffer + sizeof(struct ipv6hdr) + sizeof(struct tcphdr);
-            data_size = size - sizeof(struct ipv6hdr) - sizeof(struct tcphdr);
+            data = (const u_char*)iphead + sizeof(struct ipv6hdr) + sizeof(struct tcphdr);
+            data_size = size - sizeof(struct ipv6hdr) - sizeof(struct tcphdr) - first_head_len;
         }
     }
 
@@ -152,15 +152,19 @@ void print_proto(const u_char *buffer, int size, struct tm *time, suseconds_t us
     int offset = 0;
     if(proto == 6){
         if(ipv == ETH_P_IP){
-            print_data(buffer, sizeof(struct udphdr) + sizeof(struct iphdr), &offset);
+            print_data(buffer, sizeof(struct udphdr) + sizeof(struct iphdr) + first_head_len, \
+                    &offset);
         }else if(ipv == ETH_P_IPV6){
-            print_data(buffer, sizeof(struct udphdr) + sizeof(struct ipv6hdr), &offset);
+            print_data(buffer, sizeof(struct udphdr) + sizeof(struct ipv6hdr) + first_head_len, \
+                    &offset);
         }
     }else{
         if(ipv == ETH_P_IP){
-            print_data(buffer, sizeof(struct tcphdr) + sizeof(struct iphdr), &offset);
+            print_data(buffer, sizeof(struct tcphdr) + sizeof(struct iphdr) + first_head_len, \
+                    &offset);
         }else if(ipv == ETH_P_IPV6){
-            print_data(buffer, sizeof(struct tcphdr) + sizeof(struct ipv6hdr), &offset);
+            print_data(buffer, sizeof(struct tcphdr) + sizeof(struct ipv6hdr) + first_head_len, \
+                    &offset);
         }
     }
     //printing packet data
@@ -178,6 +182,7 @@ void read_packet(u_char *user, const struct pcap_pkthdr *h, const u_char *bytes)
     const u_char *iphead;
     uint16_t ipv;
     int proto;
+    size_t first_head_len;
 
     //1 for ethhdr
     //113 for linux cooked
@@ -185,11 +190,13 @@ void read_packet(u_char *user, const struct pcap_pkthdr *h, const u_char *bytes)
     
     if(link_frame_type == 113){
         iphead = bytes + sizeof(struct sll_header);
+        first_head_len = sizeof(struct sll_header);
         uint16_t tmp;
         memcpy(&tmp, (((void*)bytes) + 14), 2);
         ipv = ntohs(tmp);
     }else if(link_frame_type == 1){
         iphead = bytes + sizeof(struct ethhdr);
+        first_head_len = sizeof(struct ethhdr);
         ipv = ntohs(((struct ethhdr*)bytes)->h_proto); //ip version 4|6
     }
 
@@ -199,8 +206,7 @@ void read_packet(u_char *user, const struct pcap_pkthdr *h, const u_char *bytes)
         proto = ((struct ipv6hdr*)iphead)->nexthdr;
     }
 
-    print_proto(iphead, size - sizeof(struct ethhdr), time, h->ts.tv_usec, \
-            proto, ipv);
+    print_proto(bytes, size, time, h->ts.tv_usec, proto, ipv, first_head_len);
     ++pkg_counter;
 
     if(pkg_counter && num != pkg_counter) printf("\n");
