@@ -23,7 +23,7 @@
 
 //global variables :peepocry
 int num = 1;
-pcap_t *handler;
+pcap_t *handler = NULL;
 
 void print_data(const u_char *data, size_t data_size, int *offset){
     for(int i=0; i<data_size;i++){
@@ -130,42 +130,22 @@ void print_proto(const u_char *buffer, int size, struct tm *time, suseconds_t us
     const u_char *data;
     int data_size;
 
-    if(ipv == ETH_P_IP){
-        if(proto == 6){
-            data = (const u_char*)iphead + sizeof(struct iphdr) + sizeof(struct udphdr);
-            data_size = size - sizeof(struct iphdr) - sizeof(struct udphdr) - first_head_len;
-        }else if(proto == 17){
-            data = (const u_char*)iphead + sizeof(struct iphdr) + sizeof(struct tcphdr);
-            data_size = size - sizeof(struct iphdr) - sizeof(struct tcphdr) - first_head_len;
-        }
-    }else if(ipv == ETH_P_IPV6){
-        if(proto == 6){
-            data = (const u_char*)iphead + sizeof(struct ipv6hdr) + sizeof(struct udphdr);
-            data_size = size - sizeof(struct ipv6hdr) - sizeof(struct udphdr) - first_head_len;
-        }else if(proto == 17){
-            data = (const u_char*)iphead + sizeof(struct ipv6hdr) + sizeof(struct tcphdr);
-            data_size = size - sizeof(struct ipv6hdr) - sizeof(struct tcphdr) - first_head_len;
-        }
+    if(proto == 17){
+        data = buffer + first_head_len + ipheadlen + sizeof(struct udphdr);
+        data_size = size - sizeof(struct iphdr) - sizeof(struct udphdr) - first_head_len;
+    }else if(proto == 6){
+        data = buffer + first_head_len + ipheadlen + sizeof(struct tcphdr);
+        data_size = size - sizeof(struct iphdr) - sizeof(struct tcphdr) - first_head_len;
     }
 
     //printing header
     int offset = 0;
-    if(proto == 6){
-        if(ipv == ETH_P_IP){
-            print_data(buffer, sizeof(struct udphdr) + sizeof(struct iphdr) + first_head_len, \
-                    &offset);
-        }else if(ipv == ETH_P_IPV6){
-            print_data(buffer, sizeof(struct udphdr) + sizeof(struct ipv6hdr) + first_head_len, \
-                    &offset);
-        }
-    }else{
-        if(ipv == ETH_P_IP){
-            print_data(buffer, sizeof(struct tcphdr) + sizeof(struct iphdr) + first_head_len, \
-                    &offset);
-        }else if(ipv == ETH_P_IPV6){
-            print_data(buffer, sizeof(struct tcphdr) + sizeof(struct ipv6hdr) + first_head_len, \
-                    &offset);
-        }
+    if(proto == 17){
+        print_data(buffer, sizeof(struct udphdr) + ipheadlen + first_head_len, \
+                &offset);
+    }else if(proto == 6){
+        print_data(buffer, sizeof(struct tcphdr) + ipheadlen + first_head_len, \
+                &offset);
     }
     //printing packet data
     if(data_size > 0){
@@ -191,6 +171,8 @@ void read_packet(u_char *user, const struct pcap_pkthdr *h, const u_char *bytes)
     if(link_frame_type == 113){
         iphead = bytes + sizeof(struct sll_header);
         first_head_len = sizeof(struct sll_header);
+        int i = 0;
+        print_data(bytes, size, &i);
         uint16_t tmp;
         memcpy(&tmp, (((void*)bytes) + 14), 2);
         ipv = ntohs(tmp);
