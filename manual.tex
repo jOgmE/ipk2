@@ -1,0 +1,151 @@
+\documentclass[a4paper,12pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[left=2cm,top=3cm,text={17cm,24cm},a4paper]{geometry}
+\usepackage{times}
+\usepackage{mathptmx}
+\usepackage{hyperref}
+
+\title{IPK 2.projekt}
+\author{Norbert Pócs}
+\date{April 2020}
+
+\begin{document}
+\begin{titlepage}
+\begin{center}
+\textsc{\Huge Vysoké učení technické v Brně\\ \vspace{0.3em}
+\huge Fakulta informačních technologií}\\
+\vspace{\stretch{0.382}}
+\LARGE IPK\,--\,second project\\ \vspace{-0.2em}
+\Huge Varianta ZETA: Sniffer paketů\\
+\vspace{\stretch{0.618}}
+\Large \today\hfill Norbert Pócs
+\end{center}
+\end{titlepage}
+
+\tableofcontents
+
+\pagebreak
+
+\section{Introduction}
+The main purpose of the project was to create a program capable of catching TCP and UDP packets on the network and printing them out in a similar format to the one of wireshark's. Packet parsing was complicated because of different possible header types.
+
+\section{Design}
+\subsection{Packet buffer timout} \label{bftimeout}
+"If, when capturing, packets are delivered as soon as they arrive, the application capturing the packets will be woken up for each packet as it arrives, and might have to make one or more calls to the operating system to fetch each packet. If, instead, packets are not delivered as soon as they arrive, but are delivered after a short delay (called a "packet buffer timeout"), more than one packet can be accumulated before the packets are delivered, so that a single wakeup would be done for multiple packets, and each set of calls made to the operating system would supply multiple packets, rather than a single packet. This reduces the per-packet CPU overhead if packets are arriving at a high rate, increasing the number of packets per second that can be captured. The packet buffer timeout is required so that an application won't wait for the operating system's capture buffer to fill up before packets are delivered; if packets are arriving slowly, that wait could take an arbitrarily long period of time." \cite{pbtimeout}
+
+\subsection{inet\_ntop} \label{ntop}
+"This  function  converts  the network address structure src in the af address family into a character string.  The resulting string is copied to the buffer pointed to  by  dst,  which must  be  a  non-null  pointer.  The caller specifies the number of bytes available in this buffer in the argument size." \cite{inetNtop}
+
+\subsection{ntohs} \label{ntohs}
+"The htons() function converts the unsigned short integer hostshort from host byte order to network byte order." \cite{ntohs}
+
+\section{Implementation}
+The program arguments are parsed using \texttt{getopt\_long}. If no interface parameter was given, a list of the available interfaces are printed out. A pcap session is then opened using \texttt{pcap\_open\_live} on the given interface. A pocket buffer timeout$^{[\ref{bftimeout}]}$ is set on the session with a value of 5 seconds. According to the set filter program parameters (as a specific port number or showing only TCP or UDP packets) a filter is set on the already opened pcap session. The filter first needs to be compiled using \texttt{pcap\_compile}, then set using \texttt{pcap\_setfilter}. \texttt{pcap\_dispatch} is being used to read $n$ number of packets. 
+
+\subsection{Callback}
+The loop \texttt{pcap\_dispatch} is calling a callback to process an incoming packet. The callback function should have 3 arguments: user, packet header and the pointer to the raw data. \par
+Time and packet length can be read out from the packet header \cite{pkthdr}. \\
+The raw data holds the headers of different layers and the payload of the packet if any. \cite{fileFormat} \\
+To obtain link layer header type, the program calls \texttt{pcap\_datalink}. Return number \cite{linkLayerList} $113$ means linux cooked header \cite{cookedHdr} and $1$ means Ethernet header \cite{ethhdr}. The type of the link layer header depends on which interface we are sniffing on. For this program, one important information is stored in the link layer header which is the version of the IP address. \cite{ethProto} The next header under the link layer is the IP header. \par
+The IP header contains the source address, destination address and the protocol type. \cite{ipv4} The IPv6 header differ from version 4. \cite{ipv6} \par
+The upcoming header is the protocol header, which in this case can be TCP or UDP.
+
+\subsection{Program flow}
+When a packet arrives, the callback is called (This is not actually correct, because the set pocket buffer timeout$^{[\ref{bftimeout}]}$). Information is gathered from the frame headers in the callback function \texttt{read\_packet}. The information is used in the head line of the output. The format of the head line is: \\
+\texttt{time IP|FQDN : port > IP|FQDN : port}.\\
+The head line is printed out indicating the start of the packet and then the \texttt{print\_data} function is called to print out the header parts of the packet, then the same function is called again to print out the payload if any is present in the packet. By the header parts of the packet should be understood the Link Layer header, IP header and the Protocol header. The headers and the payload are separated by a new line. The data line has a format of this: \\
+\texttt{n: hexa-data readable-data} where n is a hexadecimal value representing the number of the first byte on the line, hexa-data is the data printed in hexadecimal value and readable-data is the same data as before, but in a readable character format (ASCII).
+
+\subsection{Printing data}
+A function is implemented for printing out data, called \texttt{print\_data}. The function iterates through the given array of length \texttt{data\_size}. The values are printed out by 16. If the array at the last iteration has less data than 16, then the remaining data is printed out without completing the line.
+
+\subsection{Getting data from headers}
+To get the source and destination address from the IP header \texttt{inet\_ntop} is used$^{[\ref{ntop}]}$. \par
+To read the port number of the source and destination \texttt{ntohs} function is used$^{[\ref{ntohs}]}$. \par
+To get domain name from the source and destination address \texttt{getaddrinfo} is used in the first place to get an addrinfo structure, what is then passed to the function \texttt{getnameinfo}, what returns the required domain name if found. If no domain name is found by \texttt{getnameinfo}, then the IP address is printed out, otherwise the domain name is printed out.
+
+\section{Inspiration}
+A few information sources were used as inspiration for the program. \cite{insp1} \cite{insp2} \cite{insp3}
+
+\section{Testing}
+I used the KISS principle for testing. I started wireshark and the ipk-sniffer at the same time, then I compared the packets. Curl was used to generate IPv6 packets.
+
+\pagebreak
+\begin{thebibliography}{9}
+
+\bibitem{pbtimeout}
+The Tcpdump Group:
+Manpage of PCAP,
+\url{https://www.tcpdump.org/manpages/pcap.3pcap.html}
+
+\bibitem{inetNtop}
+Michael Kerrisk:
+INET\_NTOP(3) Linux Programmer's Manual,
+\url{http://man7.org/linux/man-pages/man3/inet_ntop.3.html}
+
+\bibitem{ntohs}
+Michael Kerrisk:
+BYTEORDER(3) Linux Programmer's Manual,
+\url{http://man7.org/linux/man-pages/man3/htons.3.html}
+
+\bibitem{pkthdr}
+The WinPcap Team:
+pcap\_pkthdr Struct Reference,
+\url{https://www.winpcap.org/docs/docs_412/html/structpcap__pkthdr.html}
+
+\bibitem{fileFormat}
+Richie Slocum:
+PCAP format,
+\url{https://github.com/hokiespurs/velodyne-copter/wiki/PCAP-format}
+
+\bibitem{linkLayerList}
+The Tcpdump Group:
+LINK-LAYER HEADER TYPES,
+\url{https://www.tcpdump.org/linktypes.html}
+
+\bibitem{cookedHdr}
+Arthur Ketels and M.J.G. van den Molengraft:
+sll\_header Struct Reference,
+\url{http://docs.ros.org/lunar/api/soem/html/structsll__header.html}
+
+\bibitem{ethhdr}
+Hector Martin and Andre Heider:
+ethhdr Struct Reference,
+\url{https://docs.huihoo.com/doxygen/linux/kernel/3.7/structethhdr.html}
+
+\bibitem{ethProto}
+Fred N. van Kempen and
+Donald Becker and
+Alan Cox and
+Steve Whitehouse:
+f\_ether.h,
+\url{https://elixir.bootlin.com/linux/v4.9/source/include/uapi/linux/if_ether.h#L46}
+
+\bibitem{ipv4}
+Network Sorcery, Inc.:
+IP - Internet Protocol,
+\url{http://www.networksorcery.com/enp/protocol/ip.htm#Protocol}
+
+\bibitem{ipv6}
+Network Sorcery, Inc.:
+IPv6 - Internet Protocol version 6
+\url{http://www.networksorcery.com/enp/protocol/ipv6.htm}
+
+\bibitem{insp1}
+oananiculaescu:
+Analyse a tcpdump capture using libpcap in C,
+\url{https://elf11.github.io/2017/01/22/libpcap-in-C.html}
+
+\bibitem{insp2}
+Silver Moon:
+C Packet Sniffer Code with libpcap and linux sockets,
+\url{https://www.binarytides.com/packet-sniffer-code-c-libpcap-linux-sockets/}
+
+\bibitem{insp3}
+Mohan Raman:
+pcapstreamer – A packet dumper,
+\url{https://mohan43u.wordpress.com/tag/linux-cooked-header/}
+
+\end{thebibliography}
+
+\end{document}
