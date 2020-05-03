@@ -16,7 +16,7 @@ is omitted, then the program prints out the available interfaces.
 
 ### Missing
 
-The program can not process IPv6 packets, only IPv4.
+The program parameter `-i` requires argument otherwise gives error.
 
 ### Files
 

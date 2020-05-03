@@ -25,6 +25,9 @@
 int num = 1;
 pcap_t *handler = NULL;
 
+/* Source for print_data function with a few edits:
+ * https://www.binarytides.com/packet-sniffer-code-c-libpcap-linux-sockets/
+ */
 void print_data(const u_char *data, size_t data_size, int *offset){
     for(int i=0; i<data_size;i++){
         //print 16 char represented data
@@ -78,6 +81,7 @@ void print_proto(const u_char *buffer, int size, struct tm *time, suseconds_t us
     struct iphdr *iphead;
     struct ipv6hdr *ip6head;
 
+    //parsing ip header and IP addresses
     if(ipv == ETH_P_IP){
         iphead = (struct iphdr*)(buffer + first_head_len);
         ipheadlen = iphead->ihl*4;
@@ -87,12 +91,14 @@ void print_proto(const u_char *buffer, int size, struct tm *time, suseconds_t us
     }else if(ipv == ETH_P_IPV6){
         ip6head = (struct ipv6hdr*)(buffer + first_head_len);
         ipheadlen = sizeof(struct ipv6hdr);
+        //src dest IP
         inet_ntop(AF_INET6, &(ip6head->saddr), srcIP, INET6_ADDRSTRLEN);
         inet_ntop(AF_INET6, &(ip6head->daddr), destIP, INET6_ADDRSTRLEN);
     }
 
     const u_char *protohead = buffer + first_head_len + ipheadlen;
 
+    //getting port number
     if(proto == 17){
         //src dest PORT
         srcPort = ntohs(((struct udphdr*)protohead)->source);
@@ -116,6 +122,7 @@ void print_proto(const u_char *buffer, int size, struct tm *time, suseconds_t us
     freeaddrinfo(sinfo);
     freeaddrinfo(dinfo);
 
+    //printing line head
     printf("%02d:%02d:%02d.%ld ",time->tm_hour, time->tm_min, time->tm_sec, usec);
     if(srcHost[0] == 0){
         printf("%s : %d > ",srcIP, srcPort);
@@ -130,6 +137,7 @@ void print_proto(const u_char *buffer, int size, struct tm *time, suseconds_t us
     const u_char *data;
     int data_size;
 
+    //parsing payload
     if(proto == 17){
         data = buffer + first_head_len + ipheadlen + sizeof(struct udphdr);
         data_size = size - sizeof(struct iphdr) - sizeof(struct udphdr) - first_head_len;
@@ -309,7 +317,6 @@ int main(int argc, char **argv){
     }
     //infinite loop
     pcap_dispatch(handler, num, read_packet, NULL);
-    //TODO make timeout ^
     
     pcap_close(handler);
     pcap_freecode(&bp);
