@@ -14,6 +14,11 @@ is omitted, then the program prints out the available interfaces.
 - if `--tcp` or `-t` is set only TCP packets will be showed
 - if `--udp` or `-u` is set only UDP packets will be showed
 
+#### Example
+./ipk-sniffer -i eth0 -p 23 --tcp -n 2
+./ipk-sniffer -i eth0 --udp
+./ipk-sniffer -i eth0 -n 10
+
 ### Extensions
 - interface any
 
