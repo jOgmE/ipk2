@@ -14,9 +14,8 @@ is omitted, then the program prints out the available interfaces.
 - if `--tcp` or `-t` is set only TCP packets will be showed
 - if `--udp` or `-u` is set only UDP packets will be showed
 
-### Missing
-
-The program parameter `-i` requires argument otherwise gives error.
+### Extensions
+- interface any
 
 ### Files
 
