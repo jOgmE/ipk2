@@ -20,6 +20,7 @@
 #include <sys/socket.h>
 #include <netdb.h>
 #include <string.h>
+#include <arpa/inet.h>
 
 //global variables :peepocry
 int num = 1;
