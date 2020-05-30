@@ -180,8 +180,6 @@ void read_packet(u_char *user, const struct pcap_pkthdr *h, const u_char *bytes)
     if(link_frame_type == 113){
         iphead = bytes + sizeof(struct sll_header);
         first_head_len = sizeof(struct sll_header);
-        int i = 0;
-        print_data(bytes, size, &i);
         uint16_t tmp;
         memcpy(&tmp, (((void*)bytes) + 14), 2);
         ipv = ntohs(tmp);
